@@ -94,23 +94,17 @@ def q_learning(env: Env, gamma:float, alpha:float, eps:float, transform_state_fu
 
 		t = 0
 		while t < max_frames:
-			if rendering:
-				print(s)
-				env.render()
-				time.sleep(1 / RENDER_FPS)
-			
 			action = q_epsilon_greedy(Q_table, env.action_space.n, s, eps)
 			ss, reward, done, info = env.step(action)
-			# if ss[0] > 160:
-			# 	rate = 100
-			# else:
-			# 	rate = 200
-			
-			reward -= np.abs(ss[1]) / 300
-			# if done:
-			# 	reward -= 200
+			reward -= 1	# remove the reward for surviving, encouraging long term reward
+			if done:
+				reward -= 1000
 			r += reward
 			
+			if rendering:
+				env.render()
+				time.sleep(1 / RENDER_FPS)
+
 			if transform_state_func is not None:
 				ss = transform_state_func(env, ss, info['score'])
 			q_update(Q_table, s, action, ss, reward, gamma, alpha)
@@ -128,17 +122,17 @@ def q_learning(env: Env, gamma:float, alpha:float, eps:float, transform_state_fu
 			s = ss
 		i += 1
 		t += not rendering
+		alpha *= (1 - 1e-9)	# alpha decaying
 
 def transform_state(env:Env, state:np.ndarray, score:int) -> tuple:
-	return (int(score > 0), ) + tuple((state // [20, 5]).astype(int))
-	# return (env._game.player_vel_y,) + tuple(state // [20, 5])
+	return (score > 0, env._game.player_vel_y, ) + tuple((state // [15, 5]).astype(int))
 
 if __name__ == "__main__":
 	RENDER_FPS = 60
 
-	GAMMA = 0.9
-	ALPHA = 0.3
-	EPS = 0.05
+	GAMMA = 0.95
+	ALPHA = 0.7
+	EPS = 1e-32
 
 	env = flappy_bird_gym.make('FlappyBird-v0')
 	env._normalize_obs = False
