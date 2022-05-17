@@ -1,127 +1,8 @@
-import gym
-import time
+import flappy_bird_gym
 import numpy as np
-import os
-import platform
-from gym import Env	# for linter
+from gym import Env
+import time
 
-
-################ Deterministic Markov Decision Process learning ################
-
-def policy_iteration(env:Env, gamma:float, thresh=1e-3) -> dict:
-	"""
-		Policy iteration algorithm to approximate the optimal state value
-		given that the problem is MDP-deterministic.
-		
-		- `env`: Gym environment with finite state and action space
-		- `gamma`: discount factor for state value of future time steps (between 0 and 1)
-		- `thresh`: small convergence threshold
-		
-		Returns the optimal policy.
-	"""
-	n_states, n_actions = env.observation_space.n, env.action_space.n
-	V_old = np.zeros(n_states)
-	policy = {s:0 for s in range(n_states)}
-
-	while True:
-		# Use current policy to update state value
-		V_new = np.copy(V_old)
-		for s in range(n_states):
-			a = policy[s]	# pick action according to policy
-			v = 0		# compute state value
-			for p, ss, r, _ in env.env.P[s][a]:
-				v += p * (r + gamma * V_old[ss])
-			V_new[s] = v
-		
-		# Update policy
-		for s in range(n_states):
-			vs = -np.inf	# find best action whose subsequent state is maximized
-			for a in range(n_actions):
-				v = 0
-				for p, ss, r, _ in env.env.P[s][a]:
-					v += p * (r + gamma * V_new[ss])
-				if v > vs:
-					policy[s] = a
-					vs = v
-
-		# Check for convergence
-		if np.all(np.abs(V_old - V_new) <= thresh):
-			break
-		V_old = V_new
-	return policy
-
-def value_iteration(env:Env, gamma:float, thresh=1e-3) -> dict:
-	"""
-		Value iteration algorithm to approximate the optimal state value
-		given that the problem is MDP-deterministic. This algorithm is about
-		20% faster than policy iteration because it iterates the state space
-		and updates the state value in only one go.
-		
-		- `env`: Gym environment with finite state and action space
-		- `gamma`: discount factor for state value of future time steps (between 0 and 1)
-		- `thresh`: small convergence threshold
-		
-		Returns the optimal policy.
-	"""
-	n_states, n_actions = env.observation_space.n, env.action_space.n
-	V_old = np.zeros(n_states)
-	policy = {s:0 for s in range(n_states)}
-
-	while True:
-		# Iterate over the states and update policy and state value directly
-		V_new = np.copy(V_old)
-		for s in range(n_states):
-			vs = -np.inf	# compute state value based on value of state reached by making best action
-			for a in range(n_actions):
-				v = 0
-				for p, ss, r, _ in env.env.P[s][a]:
-					v += p * (r + gamma * V_old[ss])
-				if v > vs:
-					policy[s] = a	# update policy
-					vs = v
-			V_new[s] = vs
-		
-		# Check for convergence
-		if np.all(np.abs(V_old - V_new) <= thresh):
-			break
-		V_old = V_new
-	return policy
-
-def mdp(env:Env, gamma:float):
-	"""
-		Learn the optimal policy using one of the available algorithms
-		then render each episode of the playthrough. When one ends, user
-		is prompted to start a new episode or enter `q` to quit the program.
-
-		- `env`: Gym environment with finite state and action space
-		- `gamma`: discount factor for state value in future time steps (between 0 and 1)
-	"""
-	env = gym.make('Taxi-v3')
-	policy = MDP_LEARNING_FUNC(env, gamma)
-
-	while True:
-		r = 0
-		obs = env.reset()
-		for i in range(100):
-			action = policy[obs]
-			obs, reward, done, _ = env.step(action)
-			r += reward
-
-			os.system(CLEAR_TERMINAL)
-			env.render()
-			print(f"iter {i} : state {obs}, action {action}, reward {reward}")
-
-			time.sleep(1 / RENDER_FPS)
-			if done:
-				print("FINISHED. Total reward:", r)
-				user = input("Enter 'q' to quit: ")
-				if user == 'q':
-					exit()
-				else:
-					break
-
-
-################ Q-learning ################
 
 def q_init_state(n_actions:int) -> np.ndarray:
 	"""
@@ -135,7 +16,7 @@ def q_init_state(n_actions:int) -> np.ndarray:
 	"""
 	# Initially higher value would encourage exploration, but too high value would cause
 	# the agent to never find an optimal policy
-	return np.ones(n_actions) * 10
+	return np.zeros(n_actions)
 
 def q_epsilon_greedy(Q_table:dict, n_actions:int, state, eps:float) -> int:
 	"""
@@ -205,22 +86,33 @@ def q_learning(env: Env, gamma:float, alpha:float, eps:float, transform_state_fu
 		r = 0
 		s = env.reset()
 		if transform_state_func is not None:
-			s = transform_state_func(s)
+			s = transform_state_func(env, s, 0)
 
 		rendering = (i % render_frequency == 0) or (eps == 0)
+		if rendering:
+			print("Episode", i)
 
-		for _ in range(max_frames):
+		t = 0
+		while t < max_frames:
 			if rendering:
-				os.system(CLEAR_TERMINAL)
-				print("Episode", i)
+				print(s)
 				env.render()
 				time.sleep(1 / RENDER_FPS)
-
+			
 			action = q_epsilon_greedy(Q_table, env.action_space.n, s, eps)
-			ss, reward, done, _ = env.step(action)
+			ss, reward, done, info = env.step(action)
+			# if ss[0] > 160:
+			# 	rate = 100
+			# else:
+			# 	rate = 200
+			
+			reward -= np.abs(ss[1]) / 300
+			# if done:
+			# 	reward -= 200
 			r += reward
+			
 			if transform_state_func is not None:
-				ss = transform_state_func(ss)
+				ss = transform_state_func(env, ss, info['score'])
 			q_update(Q_table, s, action, ss, reward, gamma, alpha)
 			if done:
 				if rendering:
@@ -235,20 +127,19 @@ def q_learning(env: Env, gamma:float, alpha:float, eps:float, transform_state_fu
 				break
 			s = ss
 		i += 1
+		t += not rendering
 
+def transform_state(env:Env, state:np.ndarray, score:int) -> tuple:
+	return (int(score > 0), ) + tuple((state // [20, 5]).astype(int))
+	# return (env._game.player_vel_y,) + tuple(state // [20, 5])
 
 if __name__ == "__main__":
-	CLEAR_TERMINAL = 'cls' if platform.system() == 'Windows' else 'clear'
-	RENDER_FPS = 3
+	RENDER_FPS = 60
 
 	GAMMA = 0.9
-	ALPHA = 0.1
-	EPS = 0.1
+	ALPHA = 0.3
+	EPS = 0.05
 
-	MDP_LEARNING_FUNC = value_iteration
-
-	env = gym.make('Taxi-v3')
-
-	# Uncomment one of the following
-	# mdp(env, gamma=GAMMA)
-	q_learning(env, gamma=GAMMA, alpha=ALPHA, eps=EPS, max_frames=200, render_frequency=1000)
+	env = flappy_bird_gym.make('FlappyBird-v0')
+	env._normalize_obs = False
+	q_learning(env, gamma=GAMMA, alpha=ALPHA, eps=EPS, transform_state_func=transform_state, max_frames=1000, render_frequency=10000)
