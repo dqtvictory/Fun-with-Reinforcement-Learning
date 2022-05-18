@@ -80,6 +80,7 @@ def q_learning(env: Env, gamma:float, alpha:float, eps:float, transform_state_fu
 		visualization.
 	"""
 	Q_table = dict()
+	eps_dynamic = eps
 
 	i = 1
 	while True:
@@ -90,13 +91,14 @@ def q_learning(env: Env, gamma:float, alpha:float, eps:float, transform_state_fu
 
 		rendering = (i % render_frequency == 0) or (eps == 0)
 		if rendering:
-			print("Episode", i)
+			print(f"Rendering episode {i} with zero-greedy policy")
+			eps_dynamic = 0
 
 		t = 0
 		while t < max_frames:
-			action = q_epsilon_greedy(Q_table, env.action_space.n, s, eps)
+			action = q_epsilon_greedy(Q_table, env.action_space.n, s, eps_dynamic)
 			ss, reward, done, info = env.step(action)
-			reward -= 1	# remove the reward for surviving, encouraging long term reward
+			reward -= 1
 			if done:
 				reward -= 1000
 			r += reward
@@ -107,22 +109,24 @@ def q_learning(env: Env, gamma:float, alpha:float, eps:float, transform_state_fu
 
 			if transform_state_func is not None:
 				ss = transform_state_func(env, ss, info['score'])
+
 			q_update(Q_table, s, action, ss, reward, gamma, alpha)
+			
 			if done:
 				if rendering:
-					print("FINISHED. Total reward:", r)
-					user = input(f"Enter 'q' to quit or new epsilon for greedy policy (currently {eps}): ")
+					print("  Total reward:", r)
+					user = input(f"  Enter 'q' to quit or new epsilon (eps {eps}): ")
 					if user == 'q':
 						exit()
 					try:
 						eps = float(user)
 					except:
 						pass
+					eps_dynamic = eps
 				break
 			s = ss
+			t += not rendering
 		i += 1
-		t += not rendering
-		alpha *= (1 - 1e-9)	# alpha decaying
 
 def transform_state(env:Env, state:np.ndarray, score:int) -> tuple:
 	return (score > 0, env._game.player_vel_y, ) + tuple((state // [15, 5]).astype(int))
@@ -136,4 +140,4 @@ if __name__ == "__main__":
 
 	env = flappy_bird_gym.make('FlappyBird-v0')
 	env._normalize_obs = False
-	q_learning(env, gamma=GAMMA, alpha=ALPHA, eps=EPS, transform_state_func=transform_state, max_frames=1000, render_frequency=10000)
+	q_learning(env, gamma=GAMMA, alpha=ALPHA, eps=EPS, transform_state_func=transform_state, max_frames=1000000, render_frequency=5000)
